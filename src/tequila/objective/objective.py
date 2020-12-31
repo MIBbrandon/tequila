@@ -676,7 +676,8 @@ class VectorObjective:
             else:
                 variables += []
 
-        return list(set(variables))
+        # Casting to set ensures unique elements but not the order of the elements, so they must be sorted
+        return sorted(list(set(variables)))
 
     def extract_variables_at(self,pos):
         """

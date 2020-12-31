@@ -2,19 +2,16 @@ import numpy as np
 import pytest
 import tequila as tq
 
-
 has_tf = tq.HAS_TF
 if has_tf:
     import tensorflow as tf
     from tensorflow.keras import optimizers
 
-np.random.seed(15)
-
 @pytest.mark.dependencies
 def test_dependencies():
     assert has_tf
 
-
+# TODO: currently under review to make this test work
 # @pytest.mark.skipif(condition=not has_tf, reason="you don't have Tensorflow")
 # @pytest.mark.parametrize("angles", [np.random.uniform(0, np.pi*2, 3)])
 # def test_calls_correctly(angles: tf.Tensor):
@@ -43,44 +40,33 @@ def test_example_training():
     H2 = tq.paulis.Qm(2)
     H3 = tq.paulis.Qm(3)
 
+    tq.draw(U)
+
     stackable = [tq.ExpectationValue(U, H1), tq.ExpectationValue(U, H2), tq.ExpectationValue(U, H3)]
-    # stackable = [tq.ExpectationValue(U, H1), tq.ExpectationValue(U, H2)]
     stacked = tq.vectorize(stackable)
 
     initial_values = {'a': 1.5, 'b': 2.}
     cargs = {'samples': None, 'backend': 'random', 'initial_values': initial_values}
     tensorflowed = tq.ml.to_platform(stacked, platform='tensorflow', compile_args=cargs)
-    input_tensors = tensorflowed.get_weights()
     learning_rate = .1
-    expected_output_tensors = tf.constant([0, 0])
-    optimizer = optimizers.SGD(lr=learning_rate)
-    train_acc = tf.keras.metrics.Mean()
-    train_loss = tf.keras.metrics.Mean()
+    momentum = 0.9
+    optimizer = optimizers.SGD(lr=learning_rate, momentum=momentum)
 
     # @tf.function
     def train_step():
         # First, get a prediction
-        pred = tensorflowed(0)
+        pred = tensorflowed(0)  # 0 is ignored, Layer requires input no matter what, still trying to find a workaround
         # Then, calculate the loss of that prediction
         loss_value = tf.math.reduce_sum(pred).numpy()
+
+        # TODO: how to mix loss_value with gradients
+
         # Get the gradients
         grads = tensorflowed.get_grads_values()
 
-        print("\nAngles before: ", tensorflowed.angles.numpy().tolist())
-        print("Loss: ", loss_value)
-        print("Prediction: ", pred.numpy().tolist())
-        print("Gradients: ", grads)
-        for j in range(len(grads)):
-            for i in range(len(grads[j])):
-                grads[j][i] *= loss_value
-        print("Adjusted gradients: ", grads)
-        print("w = " + str(tensorflowed.angles.numpy().tolist()) + " - " + str(learning_rate) + " * " + str(grads))
-
         optimizer.apply_gradients(zip(grads, [tensorflowed.angles]))
 
-        print("Angles after: ", tensorflowed.angles.numpy().tolist(), "\n")
-
-    for i in range(200):
+    for i in range(80):
         train_step()
 
     called = tf.math.reduce_sum(tensorflowed(0)).numpy().tolist()
