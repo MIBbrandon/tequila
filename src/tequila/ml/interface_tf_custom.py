@@ -2,9 +2,8 @@ from typing import List
 
 import tequila as tq
 from .utils_ml import preamble, TequilaMLException
-from tequila.objective import Objective, vectorize, Variable
+from tequila.objective import Objective, vectorize
 from tequila.tools import list_assignment
-from tequila.circuit.gradient import grad
 from tequila.simulators.simulator_api import simulate
 import numpy as np
 
@@ -14,38 +13,58 @@ from tensorflow.keras import optimizers
 
 class TFLayer(tf.keras.layers.Layer):
     def __init__(self, objective: Objective, compile_args=None, input_vars=None):
+        """
+        Tensorflow layer that compiles the Objective (or VectorObjective) with the given compile arguments and/or
+        input variables if there are any when initialized. When called, it will forward the input variables into the
+        compiled objective (if there are any inputs needed) and will return the output. The gradient values can also
+        be returned.
+        Parameters
+        ----------
+        objective: Objective or VectorObjective to compile and run.
+        compile_args: dict of all the necessary information to compile the objective
+        input_vars: List of variables that will be inputs
+        """
         super(TFLayer, self).__init__()
         self.input_vars = input_vars
         self.objective = objective
         if isinstance(objective, tuple) or isinstance(objective, list) or isinstance(objective, Objective):
             objective = vectorize(list_assignment(objective))
             self.objective = objective
+
+        # If no initial values were given, we start with random values
+        if compile_args is None or compile_args["initial_values"] is None:
+            compile_args = {}
+            compile_args["initial_values"] = {}
+            vars = sorted(self.objective.extract_variables())
+            for var_name in vars:
+                # We assign initial values to variables which are not input variables
+                if input_vars is None or var_name not in input_vars:
+                    compile_args["initial_values"][var_name] = np.random.uniform(low=0, high=2 * np.pi)
+
+            if compile_args["initial_values"]:
+                self.angles = tf.Variable([compile_args["initial_values"][val] for val in compile_args["initial_values"]])
+            else:
+                self.angles = None
+        else:
+            self.angles = tf.Variable([compile_args["initial_values"][val] for val in compile_args["initial_values"]])
+
         self.comped_objective, self.compile_args, self.weight_vars, self.w_grads, self.i_grads, self.first, \
             self.second = preamble(objective, compile_args, input_vars)
-        initial_values = self.compile_args["initial_values"]
-        if initial_values is not None:
-            self.init_params = initial_values.store
-            self.angles = tf.Variable([self.init_params[val] for val in self.init_params])
-        """
-        Dict with keys being the parameter names, and values being a list of Objectives which, when simulated with 
-        certain values, will return the corresponding gradient value.
-        """
-        self.grads = grad(objective)
-        self.samples = compile_args['samples']
 
-    def build(self, input_shape):
-        # From the initial weights dict, we create weights
-        # for weight_name in self.initial_weight_vars:
-        #     self.weight_vars.append(tf.Variable(name=weight_name, initial_value=self.initial_weight_vars[weight_name]))
-        self.optimizer = optimizers.SGD(self.get_weights(), lr=.1, momentum=0.9)
+        self._input_len = 0
+        if input_vars is not None:
+            self._input_len = len(input_vars)
+        self.samples = None
+        if self.compile_args is not None:
+            self.samples = self.compile_args["samples"]
 
-    def call(self, toIgnore, x=None):
+    def call(self, toIgnore=0, x=None):
         """
-        Calls the Objective on a torch Tensor object and returns the results.
+        Calls the Objective on a TF tensor object and returns the results.
         Parameters
         ----------
-        x: tf.Tensor, optional:
-            a tf tensor. Should have dimensions (any,self._input_len)
+        x: TF.Tensor, optional:
+            a TF tensor. Should have dimensions (any,self._input_len)
 
         Returns
         -------
@@ -73,8 +92,12 @@ class TFLayer(tf.keras.layers.Layer):
         -------
 
         """
-        listed = self.get_angles()
+
         try:
+            # Try to get self.angles
+            listed = self.get_angles()
+            if listed is None:
+                raise Exception  # Just to trigger the except
             # TODO: focus on this case
             f = tf.stack(listed)
         except:
@@ -125,21 +148,21 @@ class TFLayer(tf.keras.layers.Layer):
             r = tf.convert_to_tensor(result)
         return r
 
-    def get_grads_values(self, x=None):
+    def get_weight_grads_values(self):
         """
         Returns the values of the gradients with the current parameters
         """
         # Get the current values of the parameters as a dict
         variables = {}
         list_angles = self.get_angles_list()
-        for i, param_name in enumerate(self.init_params):
+        vars = sorted(self.weight_vars)
+        for i, param_name in enumerate(vars):
             variables[param_name] = list_angles[i]
 
-        vars = self.objective.extract_variables()
         grads_values = []
         for var in sorted(vars):  # Iterate through the names of the parameters
             var_results = []
-            grads_wrt_var = grad(self.objective, variable=var)
+            grads_wrt_var = self.w_grads[var]
             if not isinstance(grads_wrt_var, List):
                 grads_wrt_var = [grads_wrt_var]
             for obj in grads_wrt_var:

@@ -8,7 +8,6 @@ if has_tf:
     from tensorflow.keras import optimizers
 
 U = tq.gates.Rx('a', 0) + tq.gates.Rx('b', 1) + tq.gates.CNOT(1, 3) + tq.gates.CNOT(0, 2) + tq.gates.CNOT(0, 1)
-H0 = tq.paulis.Qm(0)
 H1 = tq.paulis.Qm(1)
 H2 = tq.paulis.Qm(2)
 H3 = tq.paulis.Qm(3)
@@ -19,7 +18,6 @@ stackable = [tq.ExpectationValue(U, H1), tq.ExpectationValue(U, H2), tq.Expectat
 stacked = tq.vectorize(stackable)
 
 initial_values = {'a': 1.5, 'b': 2.}
-# initial_values = {"a": 1.5}
 cargs = {'samples': None, 'backend': 'random', 'initial_values': initial_values}
 tensorflowed = tq.ml.to_platform(stacked, platform='tensorflow', compile_args=cargs)
 input_tensors = tensorflowed.get_weights()
@@ -38,7 +36,7 @@ def train_step():
     # Then, calculate the loss of that prediction
     loss_value = tf.math.reduce_sum(pred).numpy()
     # Get the gradients
-    grads = tensorflowed.get_grads_values()
+    grads = tensorflowed.get_weight_grads_values()
 
     print("\nAngles before: ", tensorflowed.angles.numpy().tolist())
     print("Loss: ", loss_value)
