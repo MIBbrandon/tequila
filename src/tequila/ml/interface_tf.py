@@ -234,17 +234,16 @@ class TFLayer(tf.keras.layers.Layer):
             for param_var in sorted(param_vars):  # Iterate through the names of the parameters
                 self.get_grad_values(param_grads_values, param_var, variables, self.w_grads)
 
-        # Given the gradients per expectation value, we want to use the most informative, which
-        # has the highest absolute value
+        # We must accumulate the gradients (which I imagine means to add them)
+        # TODO: decide if we should use sum() or max() or what
         try:
             if inputs_grads_values:
                 for in_val in range(len(inputs_grads_values)):
-                    # Get max absolute value while preserving the sign
-                    inputs_grads_values[in_val] = max(inputs_grads_values[in_val], key=abs)
+                    inputs_grads_values[in_val] = sum(inputs_grads_values[in_val])
+
             if param_grads_values:
                 for param in range(len(param_grads_values)):
-                    # Get max absolute value while preserving the sign
-                    param_grads_values[param] = max(param_grads_values[param], key=abs)
+                    param_grads_values[param] = sum(param_grads_values[param])
         except:
             raise TequilaMLException("Error trying to reshape grads_values")
 

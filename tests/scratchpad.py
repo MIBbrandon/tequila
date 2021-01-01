@@ -18,7 +18,7 @@ stackable = [tq.ExpectationValue(U, H1), tq.ExpectationValue(U, H2), tq.Expectat
 stacked = tq.vectorize(stackable)
 
 initial_values = {'a': 1.5, 'b': 2.}
-cargs = {'samples': None, 'backend': 'random', 'initial_values': initial_values}
+cargs = {'samples': 1000, 'backend': 'random', 'initial_values': initial_values}
 tensorflowed = tq.ml.to_platform(stacked, platform='tensorflow', compile_args=cargs)
 learning_rate = .1
 momentum = 0.9

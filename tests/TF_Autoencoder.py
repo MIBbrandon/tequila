@@ -2,7 +2,7 @@ import tequila as tq
 import tensorflow as tf
 import numpy as np
 from matplotlib import pyplot as plt
-from tensorflow.keras.optimizers import Adam
+import tensorflow.keras.optimizers as optims
 
 bond_lengths = np.linspace(.3,1.6,20) # our bond length, in angstrom.
 amp_arrays = []
@@ -41,20 +41,21 @@ h2_encoder = tq.ExpectationValue(U=combined,H=hamiltonian)
 print('H2 autoencoder: ', h2_encoder)
 
 input_variable=h2_encoder.extract_variables()[0]
-inits={'a':1.5, 'b':1.5}
-compile_args={'backend':'qulacs', 'initial_values':inits} # dict. allowed keys: backend, samples, noise, device, initial_values
+# inits={'a':1.5, 'b':0.5}
+inits={'a':np.random.uniform(0, 2*np.pi), 'b':np.random.uniform(0, 2*np.pi)}
+compile_args={'backend':'qulacs', 'initial_values':inits, 'samples': 10000} # dict. allowed keys: backend, samples, noise, device, initial_values
 
 my_tf_encoder = tq.ml.to_platform(h2_encoder, platform='tensorflow', compile_args=compile_args, input_vars=[input_variable])
 # print(my_tf_encoder)
 
-optim = Adam(lr=0.01)
+optim = optims.SGD(lr=0.01, momentum=0.9)
 loss_values = []
 
 num_epochs = 30
 
 for epoch in range(num_epochs):
     print('*** Epoch {} ***'.format(epoch+1))
-    batch = my_data.shuffle(4).take(4)
+    batch = my_data.shuffle(20).take(10)
     batch_loss = []
     for point in batch:
         pred = my_tf_encoder(point)
@@ -62,13 +63,16 @@ for epoch in range(num_epochs):
         batch_loss.append(loss)
 
         # Get the gradients and apply them
-        input_grads_values, param_grads_values = my_tf_encoder.get_grads_values()
+        param_grads_values = my_tf_encoder.get_grads_values(only="params")
         optim.apply_gradients(zip(param_grads_values, [my_tf_encoder.get_angles()]))
         print("\t\tPrediction: ", pred.numpy())
         print("\t\tLoss: ", loss.numpy())
     bv = np.mean([l.numpy() for l in batch_loss])
     loss_values.append(bv)
-    print('\tBatched Average Loss: ', bv)
+    print('\tBatched Average Loss: ', bv, "\n")
+
+print("Final parameter values: ")
+print(my_tf_encoder.get_angles().numpy())
 
 plt.plot(loss_values, label='loss per epoch')
 plt.legend()
