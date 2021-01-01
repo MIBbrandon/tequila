@@ -27,7 +27,7 @@ def test_calls_correctly(inputs):
     stacked = tq.vectorize(evals)
     tensorflowed = tq.ml.to_platform(stacked, platform='tensorflow', input_vars=['a', 'b', 'c'])
     input_tensor = tf.convert_to_tensor(inputs)
-    output = tensorflowed(0, input_tensor=input_tensor)
+    output = tensorflowed(input_tensor=input_tensor)
     summed = tf.math.reduce_sum(output)
     detached = tf.stop_gradient(summed).numpy()
     analytic = -np.sin(input_tensor[0]) + np.sin(input_tensor[1]) - np.sin(input_tensor[2])
@@ -53,7 +53,7 @@ def test_example_training(initial_values):
 
     def train_step():
         # First, get a prediction
-        pred = tensorflowed(0)
+        pred = tensorflowed()
         # Then, calculate the loss of that prediction
         loss_value = tf.math.reduce_sum(pred).numpy()
 
@@ -68,7 +68,7 @@ def test_example_training(initial_values):
     for i in range(STEPS):
         train_step()
 
-    called = tf.math.reduce_sum(tensorflowed(0)).numpy().tolist()
+    called = tf.math.reduce_sum(tensorflowed()).numpy().tolist()
     assert np.isclose(called, 0.0, atol=1e-3)
 
 @pytest.mark.skipif(condition=not has_tf, reason="you don't have Tensorflow")
@@ -94,7 +94,7 @@ def test_fixed_inputs(initial_values, inputs):
 
     def train_step():
         # First, get a prediction
-        pred = tensorflowed(0, input_tensor=input_tensor)
+        pred = tensorflowed(input_tensor=input_tensor)
         # Then, calculate the loss of that prediction
         loss_value = tf.math.reduce_sum(pred).numpy()
 
@@ -109,7 +109,7 @@ def test_fixed_inputs(initial_values, inputs):
     for i in range(STEPS):
         train_step()
 
-    called = tf.math.reduce_sum(tensorflowed(0, input_tensor=input_tensor)).numpy().tolist()
+    called = tf.math.reduce_sum(tensorflowed(input_tensor=input_tensor)).numpy().tolist()
     assert np.isclose(called, 0.0, atol=1e-3)
 
 @pytest.mark.skipif(condition=not has_tf, reason="you don't have Tensorflow")
@@ -135,7 +135,7 @@ def test_fixed_params(initial_values, inputs):
 
     def train_step():
         # First, get a prediction
-        pred = tensorflowed(0, input_tensor=input_tensor)
+        pred = tensorflowed(input_tensor=input_tensor)
         # Then, calculate the loss of that prediction
         loss_value = tf.math.reduce_sum(pred).numpy()
 
@@ -150,7 +150,7 @@ def test_fixed_params(initial_values, inputs):
     for i in range(STEPS):
         train_step()
 
-    called = tf.math.reduce_sum(tensorflowed(0, input_tensor=input_tensor)).numpy().tolist()
+    called = tf.math.reduce_sum(tensorflowed(input_tensor=input_tensor)).numpy().tolist()
     assert np.isclose(called, 0.0, atol=1e-3)
 
 @pytest.mark.skipif(condition=not has_tf, reason="you don't have Tensorflow")
@@ -176,7 +176,7 @@ def test_no_fixed_var(initial_values, inputs):
 
     def train_step():
         # First, get a prediction
-        pred = tensorflowed(0, input_tensor=input_tensor)
+        pred = tensorflowed(input_tensor=input_tensor)
         # Then, calculate the loss of that prediction
         loss_value = tf.math.reduce_sum(pred).numpy()
 
@@ -192,5 +192,5 @@ def test_no_fixed_var(initial_values, inputs):
     for i in range(STEPS):
         train_step()
 
-    called = tf.math.reduce_sum(tensorflowed(0, input_tensor=input_tensor)).numpy().tolist()
+    called = tf.math.reduce_sum(tensorflowed(input_tensor=input_tensor)).numpy().tolist()
     assert np.isclose(called, 0.0, atol=1e-3)

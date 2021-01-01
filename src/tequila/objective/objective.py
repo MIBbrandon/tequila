@@ -1324,7 +1324,7 @@ class Variable:
         return self._name
 
     def __lt__(self, other):
-        return self._name < other._name
+        return str(self._name) < str(other._name)
 
     def __hash__(self):
         return hash(self.name)

@@ -23,7 +23,7 @@ except:
     HAS_TF = False
 
 if HAS_TF:
-    from .interface_tf_custom import TFLayer
+    from .interface_tf import TFLayer
     CONVERTERS['tensorflow'] = TFLayer
 
 

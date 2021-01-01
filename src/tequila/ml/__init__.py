@@ -3,4 +3,4 @@ from .ml_api import HAS_TORCH, HAS_TF
 if HAS_TORCH:
     from .interface_torch import TorchLayer
 if HAS_TF:
-    from .interface_tf_custom import TFLayer
+    from .interface_tf import TFLayer
