@@ -14,7 +14,7 @@ import typing, numpy, numbers
 from itertools import product
 
 import openfermion
-from openfermion.hamiltonians import MolecularData
+from openfermion.chem import MolecularData
 
 import warnings
 

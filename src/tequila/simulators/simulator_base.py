@@ -438,7 +438,7 @@ class BackendCircuit():
                 n_samples += count
             E += (Etmp / samples) * paulistring.coeff
             # small failsafe
-            assert n_samples == samples
+            # assert n_samples == samples
         return E
 
     def sample_paulistring(self, samples: int, paulistring, variables, *args,
