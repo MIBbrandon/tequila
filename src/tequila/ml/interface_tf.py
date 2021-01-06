@@ -25,34 +25,39 @@ class TFLayer(tf.keras.layers.Layer):
         compile_args: dict of all the necessary information to compile the objective
         input_vars: List of variables that will be inputs
         """
-        super(TFLayer).__init__(**kwargs)
+        super(TFLayer, self).__init__()
         self.input_vars = input_vars
         self.inputs = None  # Empty for now, but when called, it will hold a tensor with the values of the inputs
+        self.units = 1  # TODO: condition this to the number of parameters
 
         self.objective = objective
         if isinstance(objective, tuple) or isinstance(objective, list) or isinstance(objective, Objective):
             objective = vectorize(list_assignment(objective))
             self.objective = objective
 
-        # If no initial values were given, we start with random values
-        if compile_args is None or compile_args["initial_values"] is None:
-            compile_args = {}
-            compile_args["initial_values"] = {}
-            vars = sorted(self.objective.extract_variables())
-            for var_name in vars:
-                # We assign initial values to variables which are not input variables
-                if input_vars is None or var_name not in input_vars:
-                    compile_args["initial_values"][var_name] = np.random.uniform(low=0, high=2 * np.pi)
-
-            if compile_args["initial_values"]:
-                self.angles = tf.Variable([compile_args["initial_values"][val] for val in compile_args["initial_values"]])
-            else:
-                self.angles = None
-        else:
-            self.angles = tf.Variable([compile_args["initial_values"][val] for val in compile_args["initial_values"]])
-
         self.comped_objective, self.compile_args, self.weight_vars, self.w_grads, self.i_grads, self.first, \
             self.second = preamble(objective, compile_args, input_vars)
+
+        # VARIABLES
+
+        # If there are inputs, prepare the input as a trainable variable
+        if input_vars is not None:
+            initializer = tf.constant_initializer(np.random.uniform(low=0., high=2 * np.pi, size=len(input_vars)))
+            self.input_variable = self.add_weight(name="input_tensor",
+                                                  shape=(len(input_vars)),
+                                                  initializer=initializer,
+                                                  trainable=True)
+
+        # If there are weight variables, prepare the params as a trainable variable
+        if list(self.weight_vars):
+            # Initialize the variable tensor that will hold the weights/parameters/angles
+            initializer = tf.constant_initializer(np.random.uniform(low=0., high=2 * np.pi, size=len(self.weight_vars)))
+            self.params = self.add_weight(name="params", shape=(len(self.weight_vars)), dtype="float32",
+                                          initializer=initializer, trainable=True)
+
+        # If the user specified initial values for these parameters, use them
+        if compile_args is not None and compile_args["initial_values"] is not None:
+            self.params.assign([compile_args["initial_values"][val] for val in compile_args["initial_values"]])
 
         self._input_len = 0
         if input_vars is not None:
@@ -65,6 +70,14 @@ class TFLayer(tf.keras.layers.Layer):
         """
         Calls the Objective on a TF tensor object and returns the results.
 
+        There are three cases which we could have:
+            1) We have just input variables
+            2) We have just parameter variables
+            3) We have both input and parameter variables
+
+        We must determine which situation we are in and execute the corresponding _do() function to also get the
+        correct gradients.
+
         Parameters
         ----------
         input_tensor: TF.Tensor, optional:
@@ -75,19 +88,84 @@ class TFLayer(tf.keras.layers.Layer):
         tf.Tensor:
             a TF tensor, the result of calling the underlying objective on the data input.
         """
-        self.inputs = input_tensor
-        if input_tensor is not None:
-            if len(input_tensor.shape) == 1:
-                out = self._do(input_tensor)
-            else:
-                out = tf.stack([self._do(y) for y in input_tensor])
+        if self.input_vars is not None and self.weight_vars:  # If there are both inputs and params
+            try:
+                self.input_variable.assign(input_tensor)
+            except:
+                # User forgot to insert input_tensor
+                raise TequilaMLException("Please insert the input tensor")
+
+            # Forward pass with both inputs and parameters
+            out = self._do(self.input_variable, self.get_params())
+        elif self.input_vars is not None:
+            try:
+                self.input_variable.assign(input_tensor)
+            except:
+                # User forgot to insert input_tensor
+                raise TequilaMLException("Please insert the input tensor")
+
+            # Forward pass with just input
+            out = self._do_just_input(self.input_variable)
         else:
-            out = self._do(None)
+            # Only option left is that there are only parameters
+            out = self._do_just_params(self.get_params())
         return out
 
-    def _do(self, input_tensor: tf.Tensor = None) -> tf.Tensor:
+# We need to make a _do() function for where there is an input and another one for when there isn't. This is because the
+# decorator @tf.custom_gradient counts the number of required inputs and forces that same number of gradients to appear
+
+
+    @tf.custom_gradient
+    def _do_just_input(self, input_tensor: tf.Tensor):
         """
-        If there is input to involve in this forward pass, involve it. Otherwise, do a normal forward pass.
+        Forward pass with just the inputs
+
+        Parameters
+        ----------
+        input_tensor
+
+        Returns
+        -------
+
+        """
+        if len(input_tensor.numpy().tolist()) != self._input_len:
+            raise TequilaMLException('Received input of len {} when Objective takes {} inputs.'.format(len(input_tensor.numpy()), self._input_len))
+        else:
+            input_tensor = tf.stack(input_tensor)
+
+        def grad(upstream):
+            d_wrt_input = self.get_grads_values(only="inputs")
+            return upstream * d_wrt_input
+
+        return self.realForward(inputs=input_tensor, angles=None), grad
+
+    @tf.custom_gradient
+    def _do_just_params(self, params_tensor: tf.Tensor):
+        """
+        Forward pass with just the parameters
+
+        Parameters
+        ----------
+        params_tensor
+
+        Returns
+        -------
+
+        """
+
+        # TODO: check if we need to raise an exception here in relation to the length of the tensor for the parameters
+        params_tensor = tf.stack(params_tensor)
+
+        def grad(upstream):
+            d_wrt_param = self.get_grads_values(only="params")
+            return upstream * d_wrt_param
+
+        return self.realForward(inputs=None, angles=params_tensor), grad
+
+    @tf.custom_gradient
+    def _do(self, input_tensor: tf.Tensor, params_tensor: tf.Tensor):
+        """
+        Forward pass with both input and parameter variables
 
         Parameters
         ----------
@@ -99,23 +177,30 @@ class TFLayer(tf.keras.layers.Layer):
         tf.Tensor:
             Result of the forward pass
         """
-        try:
-            # Try to get self.angles
-            listed = self.get_angles()
-            if listed is None:
-                raise Exception  # Just to trigger the except
-            # TODO: focus on this case
-            f = tf.stack(listed)
-        except:
-            f = None
-        if input_tensor is not None:
-            if len(input_tensor.numpy().tolist()) != self._input_len:
-                raise TequilaMLException('Received input of len {} when Objective takes {} inputs.'.format(len(input_tensor), self._input_len))
-            else:
-                input_tensor = tf.stack(input_tensor)
-        return self.realForward(inputs=input_tensor, angles=f)
+        # TODO: check if we need to raise an exception here in relation to the length of the tensor for the parameters
+        params_tensor = tf.stack(params_tensor)
 
-    def realForward(self, inputs: tf.Tensor, angles: tf.Tensor) -> tf.Tensor:
+        if len(input_tensor.numpy().tolist()) != self._input_len:
+            raise TequilaMLException('Received input of len {} when Objective takes {} inputs.'.format(len(input_tensor.numpy()), self._input_len))
+        else:
+            input_tensor = tf.stack(input_tensor)
+
+        def grad(upstream):
+            input_gradient_values, parameter_gradient_values = self.get_grads_values()
+            # Convert to tensor
+            in_Tensor = tf.convert_to_tensor(input_gradient_values, dtype=tf.float32)
+            par_Tensor = tf.convert_to_tensor(parameter_gradient_values, dtype=tf.float32)
+
+            # Multiply with the upstream
+            in_Upstream = tf.dtypes.cast(upstream, tf.float32) * in_Tensor
+            par_Upstream = tf.dtypes.cast(upstream, tf.float32) * par_Tensor
+
+            # Transpose and sum
+            return tf.reduce_sum(tf.transpose(in_Upstream), axis=0), tf.reduce_sum(tf.transpose(par_Upstream), axis=0)
+
+        return self.realForward(inputs=input_tensor, angles=params_tensor), grad  # Just get the result, not the grad method
+
+    def realForward(self, inputs: Union[tf.Tensor, None], angles: Union[tf.Tensor, None]) -> tf.Tensor:
         """
         This is where we really execute the forward pass.
 
@@ -215,7 +300,7 @@ class TFLayer(tf.keras.layers.Layer):
                 variables[in_var_name] = list_inputs[i]
 
         # Parameters
-        list_angles = self.get_angles_list()
+        list_angles = self.get_params_list()
         param_vars = None
         if list_angles:
             param_vars = sorted(self.weight_vars)
@@ -235,26 +320,25 @@ class TFLayer(tf.keras.layers.Layer):
                 self.get_grad_values(param_grads_values, param_var, variables, self.w_grads)
 
         # We must accumulate the gradients (which I imagine means to add them)
-        # TODO: decide if we should use sum() or max() or what
         try:
             if inputs_grads_values:
-                for in_val in range(len(inputs_grads_values)):
-                    inputs_grads_values[in_val] = sum(inputs_grads_values[in_val])
+                # We first turn it into a numpy array, then transpose it
+                inputs_grads_values = np.array(inputs_grads_values)
 
             if param_grads_values:
-                for param in range(len(param_grads_values)):
-                    param_grads_values[param] = sum(param_grads_values[param])
+                # We first turn it into a numpy array, then transpose it
+                param_grads_values = np.array(param_grads_values)
         except:
             raise TequilaMLException("Error trying to reshape grads_values")
 
         # Determine what to return
         # Put in a list since optimizers.apply_gradients() requires so
         if get_input_grads and get_param_grads:
-            return [inputs_grads_values], [param_grads_values]
+            return inputs_grads_values, param_grads_values
         elif get_input_grads and not get_param_grads:
-            return [inputs_grads_values]
+            return inputs_grads_values
         elif not get_input_grads and get_param_grads:
-            return [param_grads_values]
+            return param_grads_values
 
     def get_grad_values(self, grads_values, var, variables, objectives_grad):
         """
@@ -283,16 +367,16 @@ class TFLayer(tf.keras.layers.Layer):
                                         samples=self.samples))
         grads_values.append(var_results)
 
-    def get_angles(self):
-        return self.angles
+    def get_params(self):
+        return self.params
 
-    def get_angles_list(self):
-        if self.get_angles() is not None:
-            return self.get_angles().numpy().tolist()
+    def get_params_list(self):
+        if self.get_params() is not None:
+            return self.get_params().numpy().tolist()
         return []
 
     def get_inputs(self):
-        return self.inputs
+        return self.input_variable
 
     def get_inputs_list(self):
         if self.get_inputs() is not None:
