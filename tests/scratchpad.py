@@ -7,7 +7,7 @@ if has_tf:
     from tensorflow.keras import optimizers
 
 U = tq.gates.Rx('c', 0) + tq.gates.Rx('d', 1) + tq.gates.Rx('a', 0) + tq.gates.Rx('b', 1) + tq.gates.CNOT(1, 3) \
-        + tq.gates.CNOT(0, 2) + tq.gates.CNOT(0, 1)
+    + tq.gates.CNOT(0, 2) + tq.gates.CNOT(0, 1)
 H1 = tq.paulis.Qm(1)
 H2 = tq.paulis.Qm(2)
 H3 = tq.paulis.Qm(3)
@@ -18,40 +18,23 @@ stackable = [tq.ExpectationValue(U, H1), tq.ExpectationValue(U, H2), tq.Expectat
 stacked = tq.vectorize(stackable)
 
 initial_values = {'a': 1.5, 'b': 2.}
-cargs = {'samples': None, 'backend': 'random', 'initial_values': initial_values}
-tensorflowed = tq.ml.to_platform(stacked, platform='tensorflow', compile_args=cargs, input_vars=['c', 'd'])
+# input_tensor = tf.constant([2., 1.8], dtype=tf.float32)
+cargs = {'samples': None}
+tensorflowed = tq.ml.to_platform(stacked, platform='tensorflow', compile_args=cargs, input_vars=['a', 'b'])
+# tensorflowed.set_input_values(input_tensor)
 learning_rate = .1
 momentum = 0.9
-optimizer = optimizers.SGD(lr=learning_rate, momentum=momentum)
+optimizer = optimizers.Adam(lr=learning_rate)
 
-input_tensor = tf.Variable([0., 0.])
+var_list_fn = lambda: tensorflowed.trainable_variables
 
-# @tf.function
-def train_step():
-    with tf.GradientTape() as g:
-        g.watch(input_tensor)
-        # First, get a prediction
-        pred = tensorflowed(input_tensor)
+loss = lambda: tf.reduce_sum(tensorflowed())
 
-        # Then, calculate the loss of that prediction
-        loss_value = tf.math.reduce_sum(pred)
+for i in range(200):
+    print([x.numpy().tolist() for x in tensorflowed.trainable_variables])
+    optimizer.minimize(loss, var_list_fn)
 
-    grads = g.gradient(loss_value, tensorflowed.trainable_variables)
-
-    print("\nPrediction: ", pred.numpy().tolist())
-    print("Loss: ", loss_value.numpy().tolist())
-    print("Gradients: ", grads)
-    print("Vars before: ", tensorflowed.trainable_variables)
-
-    optimizer.apply_gradients(zip(grads, tensorflowed.trainable_variables))
-
-    print("Vars after: ", tensorflowed.trainable_variables, "\n")
-    # optimizer.minimize(loss_value, [tensorflowed.get_inputs(), tensorflowed.get_params()])
-
-
-
-for i in range(80):
-    train_step()
-
-called = tf.math.reduce_sum(tensorflowed(input_tensor)).numpy().tolist()
-assert np.isclose(called, 0.0, atol=1e-3)
+called = tf.math.reduce_sum(tensorflowed()).numpy().tolist()
+print("Final prediction: ", tensorflowed().numpy().tolist())
+print("Final loss: ", called)
+print("Final variable values: ", [x.numpy().tolist() for x in tensorflowed.trainable_variables])
