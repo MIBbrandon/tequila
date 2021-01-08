@@ -7,7 +7,7 @@ if has_tf:
     import tensorflow as tf
     from tensorflow.keras import optimizers
 
-STEPS = 90
+STEPS = 120
 
 
 @pytest.mark.dependencies
@@ -16,8 +16,10 @@ def test_dependencies():
 
 
 @pytest.mark.skipif(condition=not has_tf, reason="you don't have Tensorflow")
-@pytest.mark.parametrize("inputs", [np.random.uniform(0, np.pi * 2, 3)])
-def test_calls_correctly(inputs):
+@pytest.mark.parametrize("initial_input_values", [{'a': np.random.uniform(0, 2 * np.pi),
+                                                   'b': np.random.uniform(0, 2 * np.pi),
+                                                   'c': np.random.uniform(0, 2 * np.pi)}])
+def test_calls_correctly(initial_input_values):
     U1 = tq.gates.Rx(angle='a', target=0)
     H1 = tq.paulis.Y(0)
     U2 = tq.gates.Ry(angle='b', target=0)
@@ -28,12 +30,11 @@ def test_calls_correctly(inputs):
     evals = [tq.ExpectationValue(U1, H1), tq.ExpectationValue(U2, H2), tq.ExpectationValue(U3, H3)]
     stacked = tq.vectorize(evals)
     tensorflowed = tq.ml.to_platform(stacked, platform='tensorflow', input_vars=['a', 'b', 'c'])
-    input_tensor = tf.constant(inputs, dtype=tf.float32)
-    tensorflowed.set_input_values(input_tensor)
+    tensorflowed.set_input_values(initial_input_values)
     output = tensorflowed()
     summed = tf.math.reduce_sum(output)
     detached = tf.stop_gradient(summed).numpy()
-    analytic = -np.sin(input_tensor[0]) + np.sin(input_tensor[1]) - np.sin(input_tensor[2])
+    analytic = -np.sin(initial_input_values["a"]) + np.sin(initial_input_values["b"]) - np.sin(initial_input_values["c"])
     assert np.isclose(detached, analytic, atol=1.e-3)
 
 
@@ -66,11 +67,12 @@ def test_example_training(initial_values):
 
 
 @pytest.mark.skipif(condition=not has_tf, reason="you don't have Tensorflow")
-@pytest.mark.parametrize("initial_values",
+@pytest.mark.parametrize("initial_params_values",
                          [{'a': np.random.uniform(0, 2 * np.pi), 'b': np.random.uniform(0, 2 * np.pi)}])
-@pytest.mark.parametrize("inputs", [np.random.uniform(0, np.pi * 2, 2)])
+@pytest.mark.parametrize("initial_input_values", [{'c': np.random.uniform(0, 2 * np.pi),
+                                                   'd': np.random.uniform(0, 2 * np.pi)}])
 @pytest.mark.parametrize("fixed", ["inputs", "params", "nothing"])
-def test_different_fixed_variables_cases(initial_values, inputs, fixed):
+def test_different_fixed_variables_cases(initial_params_values, initial_input_values, fixed):
     U = tq.gates.Rx('c', 0) + tq.gates.Rx('d', 1) + tq.gates.Rx('a', 0) + tq.gates.Rx('b', 1) + tq.gates.CNOT(1, 3) \
         + tq.gates.CNOT(0, 2) + tq.gates.CNOT(0, 1)
     H1 = tq.paulis.Qm(1)
@@ -80,19 +82,18 @@ def test_different_fixed_variables_cases(initial_values, inputs, fixed):
     stackable = [tq.ExpectationValue(U, H1), tq.ExpectationValue(U, H2), tq.ExpectationValue(U, H3)]
     stacked = tq.vectorize(stackable)
 
-    cargs = {'samples': None, 'backend': 'random', 'initial_values': initial_values}
-    tensorflowed = tq.ml.to_platform(stacked, platform='tensorflow', compile_args=cargs, input_vars=['c', 'd'])
-    initial_params = tensorflowed.get_params_list()
-    input_tensor = tf.constant(inputs, dtype=tf.float32)
-    tensorflowed.set_input_values(input_tensor)
+    cargs = {'samples': None, 'backend': None, 'initial_values': initial_params_values}
+    input_vars = ['c', 'd']
+    tensorflowed = tq.ml.to_platform(stacked, platform='tensorflow', compile_args=cargs, input_vars=input_vars)
+    tensorflowed.set_input_values(initial_input_values)
     learning_rate = .1
     momentum = 0.9
     optimizer = optimizers.SGD(lr=learning_rate, momentum=momentum)
 
     if fixed == "inputs":
-        var_list_fn = lambda: tensorflowed.get_params()  # Since we just want to train the parameters
+        var_list_fn = lambda: tensorflowed.get_params_variable()  # Since we just want to train the parameters
     elif fixed == "params":
-        var_list_fn = lambda: tensorflowed.get_inputs()  # Since we just want to train the inputs
+        var_list_fn = lambda: tensorflowed.get_inputs_variable()  # Since we just want to train the inputs
     else:
         var_list_fn = lambda: tensorflowed.trainable_variables  # We train all trainable variables
 
@@ -107,13 +108,10 @@ def test_different_fixed_variables_cases(initial_values, inputs, fixed):
     # Check that what should have stayed fixed does stay fixed
     # NOTE: by chance, these assertions may fail because they happen to not need to change. Just run again to make sure
     if fixed == "inputs":
-        assert all([np.isclose(before, after, atol=1e-3)
-                    for before, after in zip(inputs, tensorflowed.get_inputs_list())])
+        final_input_values = tensorflowed.get_input_values()
+        for input_var_name in input_vars:
+            assert np.isclose(initial_input_values[input_var_name], final_input_values[input_var_name], atol=1e-3)
     elif fixed == "params":
-        assert all([np.isclose(before, after, atol=1e-3)
-                    for before, after in zip(initial_params, tensorflowed.get_params_list())])
-    else:
-        assert not all([np.isclose(before, after, atol=1e-3)
-                        for before, after in zip(inputs, tensorflowed.get_inputs_list())])
-        assert not all([np.isclose(before, after, atol=1e-3)
-                        for before, after in zip(initial_params, tensorflowed.get_params_list())])
+        final_params_values = tensorflowed.get_params_values()
+        for param_var_name in tensorflowed.params_vars:
+            assert np.isclose(initial_params_values[param_var_name], final_params_values[param_var_name], atol=1e-3)
