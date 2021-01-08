@@ -26,9 +26,9 @@ tensorflowed = tq.ml.to_platform(stacked, platform='tensorflow', compile_args=ca
 tensorflowed.set_input_values(initial_input_values)
 learning_rate = .1
 momentum = 0.9
-optimizer = optimizers.Adam(lr=learning_rate)
+optimizer = optimizers.SGD(lr=learning_rate, momentum=momentum)
 
-desired_output = tf.constant([0., 0., 0.])
+desired_output = tf.constant([.5, 0.5, 1])
 
 var_list_fn = lambda: tensorflowed.trainable_variables
 
@@ -40,7 +40,6 @@ for i in range(100):
     print(tensorflowed.get_input_values(), tensorflowed.get_params_values())
     optimizer.minimize(loss, var_list_fn)
 
-called = tf.math.reduce_sum(tensorflowed()).numpy().tolist()
 print("Final prediction: ", tensorflowed().numpy().tolist())
-print("Final loss: ", called)
+print("Final loss: ", loss().numpy().tolist())
 print("Final variable values: ", tensorflowed.get_input_values(), tensorflowed.get_params_values())

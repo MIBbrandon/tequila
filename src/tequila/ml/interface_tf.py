@@ -110,7 +110,7 @@ class TFLayer(tf.keras.layers.Layer):
         if self.compile_args is not None:
             self.samples = self.compile_args["samples"]
 
-    def __call__(self) -> tf.Tensor:
+    def __call__(self, input_tensor: tf.Tensor = None) -> tf.Tensor:
         """
         Calls the Objective on a TF tensor object and returns the results.
 
@@ -127,6 +127,10 @@ class TFLayer(tf.keras.layers.Layer):
         tf.Tensor:
             a TF tensor, the result of calling the underlying objective on the input combined with the parameters.
         """
+        # This is for the situation where various different inputs are being introduced
+        if input_tensor is not None:
+            self.set_input_values(input_tensor)
+
         # Case of both inputs and parameters
         if self.input_vars is not None and self.weight_vars:
             return self._do(self.input_variable, self.get_params_variable())
@@ -394,7 +398,7 @@ class TFLayer(tf.keras.layers.Layer):
         elif not get_input_grads and get_param_grads:
             return param_grads_values
 
-    def set_input_values(self, initial_input_values: dict):
+    def set_input_values(self, initial_input_values: Union[dict, tf.Tensor]):
         """
         Stores the values of the tensor into the self.input_variable. Intended to be used to set the values that the
         input variables initially will have before training.
@@ -403,19 +407,29 @@ class TFLayer(tf.keras.layers.Layer):
         ----------
 
         """
-        initial_input_values = OrderedDict(sorted(initial_input_values.items()))
-        input_values_tensor = tf.convert_to_tensor([initial_input_values[i] for i in initial_input_values])
+        # If the input is a dictionary
+        if isinstance(initial_input_values, dict):
+            initial_input_values = OrderedDict(sorted(initial_input_values.items()))
+            input_values_tensor = tf.convert_to_tensor([initial_input_values[i] for i in initial_input_values])
 
-        # Check that input variables are expected
-        if self.input_vars is not None:
-            # Check that the length of the tensor of the variable is the correct one
-            if input_values_tensor.shape == self._input_len:
-                self.input_variable.assign(input_values_tensor)
+            # Check that input variables are expected
+            if self.input_vars is not None:
+                # Check that the length of the tensor of the variable is the correct one
+                if input_values_tensor.shape == self._input_len:
+                    self.input_variable.assign(input_values_tensor)
+                else:
+                    raise TequilaMLException("Input tensor has shape {} which does not match "
+                                             "the {} inputs expected".format(input_values_tensor.shape, self._input_len))
+            else:
+                raise TequilaMLException("No input variables were expected.")
+        # If the input is a tensor
+        elif isinstance(initial_input_values, tf.Tensor):
+            if initial_input_values.shape == self._input_len:
+                # We have no information about which value corresponds to which variable, so we assume alphabetical order
+                self.input_variable.assign(initial_input_values)
             else:
                 raise TequilaMLException("Input tensor has shape {} which does not match "
-                                         "the {} inputs expected".format(input_values_tensor.shape, self._input_len))
-        else:
-            raise TequilaMLException("No input variables were expected.")
+                                         "the {} inputs expected".format(initial_input_values.shape, self._input_len))
 
     def fill_grads_values(self, grads_values, var, variables, objectives_grad):
         """
