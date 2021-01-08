@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 import numpy as np
 import tequila as tq
 
@@ -5,9 +7,10 @@ has_tf = tq.HAS_TF
 if has_tf:
     import tensorflow as tf
     from tensorflow.keras import optimizers
+    from tensorflow.keras.losses import mse
 
-U = tq.gates.Rx('a', 0) + tq.gates.Rx('b', 1) + tq.gates.CNOT(1, 3) \
-        + tq.gates.CNOT(0, 2) + tq.gates.CNOT(0, 1)
+U = tq.gates.Rx('c', 0) + tq.gates.Rx('d', 1) + tq.gates.Rx('a', 0) + tq.gates.Rx('b', 1) + tq.gates.CNOT(1, 3) \
+    + tq.gates.CNOT(0, 2) + tq.gates.CNOT(0, 1)
 H1 = tq.paulis.Qm(1)
 H2 = tq.paulis.Qm(2)
 H3 = tq.paulis.Qm(3)
@@ -16,47 +19,27 @@ H3 = tq.paulis.Qm(3)
 
 stackable = [tq.ExpectationValue(U, H1), tq.ExpectationValue(U, H2), tq.ExpectationValue(U, H3)]
 stacked = tq.vectorize(stackable)
-
 initial_values = {'a': 1.5, 'b': 2.}
-cargs = {'samples': 1000, 'backend': 'random', 'initial_values': initial_values}
-tensorflowed = tq.ml.to_platform(stacked, platform='tensorflow', compile_args=cargs)
+initial_input_values = {'d': 2., 'c': 1.8}
+cargs = {'samples': None, 'initial_values': initial_values}
+tensorflowed = tq.ml.to_platform(stacked, platform='tensorflow', compile_args=cargs, input_vars=['d', 'c'])
+tensorflowed.set_input_values(initial_input_values)
 learning_rate = .1
 momentum = 0.9
 optimizer = optimizers.SGD(lr=learning_rate, momentum=momentum)
 
-# input_tensor = tf.Variable([1.5, 0.3])
+desired_output = tf.constant([.5, 0.5, 1])
 
-# @tf.function
-def train_step():
-    # First, get a prediction
-    pred = tensorflowed()
-    # Then, calculate the loss of that prediction
-    loss_value = tf.math.reduce_sum(pred).numpy()
+var_list_fn = lambda: tensorflowed.trainable_variables
 
-    # TODO: how to mix loss_value with gradients
+loss = lambda: mse(tensorflowed(), desired_output)
 
-    # Get the gradients
-    input_grads_values, param_grads_values = tensorflowed.get_grads_values()
+print("Before training: ", tensorflowed.get_input_values(), tensorflowed.get_params_values())
 
-    # print("\nInputs before: ", input_tensor.numpy().tolist())
-    print("Angles before: ", tensorflowed.angles.numpy().tolist())
-    print("Loss: ", loss_value)
-    print("Prediction: ", pred.numpy().tolist())
-    print("Gradients: ", param_grads_values)
-    # for j in range(len(grads)):
-    #     for i in range(len(grads[j])):
-    #         grads[j][i] *= -1
-    print("Adjusted gradients: ", param_grads_values)
-    print("w = " + str(tensorflowed.angles.numpy().tolist()) + " - " + str(learning_rate) + " * " + str(param_grads_values))
+for i in range(100):
+    print(tensorflowed.get_input_values(), tensorflowed.get_params_values())
+    optimizer.minimize(loss, var_list_fn)
 
-    optimizer.apply_gradients(zip(param_grads_values, [tensorflowed.angles]))
-    # optimizer.apply_gradients(zip(input_grads_values, [input_tensor]))
-    # print("Inputs after: ", input_tensor.numpy().tolist())
-    print("Angles after: ", tensorflowed.angles.numpy().tolist(), "\n")
-
-
-for i in range(80):
-    train_step()
-
-called = tf.math.reduce_sum(tensorflowed()).numpy().tolist()
-assert np.isclose(called, 0.0, atol=1e-3)
+print("Final prediction: ", tensorflowed().numpy().tolist())
+print("Final loss: ", loss().numpy().tolist())
+print("Final variable values: ", tensorflowed.get_input_values(), tensorflowed.get_params_values())
