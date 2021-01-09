@@ -311,9 +311,9 @@ class BackendCircuitCirq(BackendCircuit):
         cirq_gate = cirq.MeasurementGate(len(target_qubits)).on(*[self.qubit(t) for t in target_qubits])
         return circuit + cirq_gate # avoid inplace operations for measurements
 
-    def make_qubit_map(self, qubits) -> typing.Dict[numbers.Integral, cirq.GridQubit]:
+    def make_qubit_map(self, qubits) -> typing.Dict[numbers.Integral, cirq.LineQubit]:
         """
-        Map integers to cirq.GridQubits
+        Map integers to cirq.LineQubits
         Parameters
         ----------
         qubits:
@@ -332,7 +332,7 @@ class BackendCircuitCirq(BackendCircuit):
 
         # initialize cirq_qubits
         for k, v in qubit_map.items():
-            qubit_map[k].instance = cirq.GridQubit(qubit_map[k].number, 0)
+            qubit_map[k].instance = cirq.LineQubit(qubit_map[k].number)
         return qubit_map
 
     def build_device_circuit(self, ignore_failures=False):
